@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>我的地图照片</title>
+    
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    
+    <style>
+        /* 让地图占满整个手机或电脑屏幕 */
+        body { margin: 0; padding: 0; }
+        #map { height: 100vh; width: 100%; }
+        
+        /* 弹窗样式优化：让图片自适应大小 */
+        .custom-popup .leaflet-popup-content-wrapper {
+            border-radius: 8px;
+            padding: 5px;
+        }
+        .popup-photo {
+            width: 100%; /* 图片宽度撑满弹窗 */
+            max-width: 300px; /* 最大宽度限制，防止电脑上太大 */
+            height: auto;
+            border-radius: 4px;
+            display: block;
+            margin-top: 5px;
+        }
+        .popup-text {
+            font-size: 14px;
+            text-align: center;
+            margin-bottom: 5px;
+            font-weight: bold;
+            color: #333;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="map"></div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+    <script>
+        // --- 核心逻辑开始 ---
+
+        // 1. 获取 URL 中的参数 (例如 ?lat=30&lng=120&img=http...)
+        const params = new URLSearchParams(window.location.search);
+        
+        // 读取经度、纬度、图片地址、描述文字
+        // 如果 URL 里没填，就用 || 后面的默认值（这里默认设为北京天安门）
+        const lat = params.get('lat') || 39.9042;
+        const lng = params.get('lng') || 116.4074;
+        const imgUrl = params.get('img'); 
+        const text = params.get('text') || "我在这里！";
+
+        // 2. 初始化地图
+        // 15 是缩放级别，数字越大地图越详细
+        var map = L.map('map').setView([lat, lng], 15);
+
+        // 3. 加载地图图层 (这里使用的是免费的 OpenStreetMap)
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '&copy; OpenStreetMap contributors'
+        }).addTo(map);
+
+        // 4. 构建弹窗内容
+        let popupContent = `<div class="popup-text">${text}</div>`;
+        
+        if (imgUrl) {
+            // 如果链接里提供了图片，就加进去
+            popupContent += `<img src="${imgUrl}" class="popup-photo" alt="照片加载失败">`;
+        } else {
+            // 如果没图片，提示一下
+            popupContent += `<p style="text-align:center;color:gray">没有提供图片链接</p>`;
+        }
+
+        // 5. 添加标记并自动打开弹窗
+        L.marker([lat, lng]).addTo(map)
+            .bindPopup(popupContent, {
+                className: 'custom-popup',
+                maxWidth: 320
+            })
+            .openPopup(); // 页面加载完自动弹开
+
+        // --- 核心逻辑结束 ---
+    </script>
+</body>
+</html>
