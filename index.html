@@ -3,34 +3,27 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-    <title>我的地图照片</title>
+    <title>我的足迹地图</title>
     
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    
+    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
+
     <style>
-        /* 让地图占满整个手机或电脑屏幕 */
         body { margin: 0; padding: 0; }
         #map { height: 100vh; width: 100%; }
-        
-        /* 弹窗样式优化：让图片自适应大小 */
-        .custom-popup .leaflet-popup-content-wrapper {
-            border-radius: 8px;
-            padding: 5px;
-        }
         .popup-photo {
-            width: 100%; /* 图片宽度撑满弹窗 */
-            max-width: 300px; /* 最大宽度限制，防止电脑上太大 */
-            height: auto;
+            width: 100%;
+            max-width: 200px;
             border-radius: 4px;
-            display: block;
             margin-top: 5px;
+            display: block;
         }
         .popup-text {
             font-size: 14px;
+            font-weight: bold;
             text-align: center;
             margin-bottom: 5px;
-            font-weight: bold;
-            color: #333;
         }
     </style>
 </head>
@@ -39,49 +32,56 @@
     <div id="map"></div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+    <script src="https://unpkg.com/papaparse@5.4.1/papaparse.min.js"></script>
 
     <script>
-        // --- 核心逻辑开始 ---
+        // --- 配置区域 ---
+        // 把你第一步复制的 Google Sheet CSV 链接填在这里：
+        const googleSheetUrl = 'https://docs.google.com/spreadsheets/d/e/2PACX-xxxxxx/pub?output=csv'; 
 
-        // 1. 获取 URL 中的参数 (例如 ?lat=30&lng=120&img=http...)
-        const params = new URLSearchParams(window.location.search);
-        
-        // 读取经度、纬度、图片地址、描述文字
-        // 如果 URL 里没填，就用 || 后面的默认值（这里默认设为北京天安门）
-        const lat = params.get('lat') || 39.9042;
-        const lng = params.get('lng') || 116.4074;
-        const imgUrl = params.get('img'); 
-        const text = params.get('text') || "我在这里！";
-
-        // 2. 初始化地图
-        // 15 是缩放级别，数字越大地图越详细
-        var map = L.map('map').setView([lat, lng], 15);
-
-        // 3. 加载地图图层 (这里使用的是免费的 OpenStreetMap)
+        // --- 初始化地图 ---
+        var map = L.map('map').setView([35.8617, 104.1954], 4); // 默认看中国
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            attribution: '&copy; OpenStreetMap contributors'
+            attribution: '&copy; OpenStreetMap'
         }).addTo(map);
 
-        // 4. 构建弹窗内容
-        let popupContent = `<div class="popup-text">${text}</div>`;
-        
-        if (imgUrl) {
-            // 如果链接里提供了图片，就加进去
-            popupContent += `<img src="${imgUrl}" class="popup-photo" alt="照片加载失败">`;
-        } else {
-            // 如果没图片，提示一下
-            popupContent += `<p style="text-align:center;color:gray">没有提供图片链接</p>`;
-        }
+        // 创建聚合组 (Cluster Group)
+        var markers = L.markerClusterGroup();
 
-        // 5. 添加标记并自动打开弹窗
-        L.marker([lat, lng]).addTo(map)
-            .bindPopup(popupContent, {
-                className: 'custom-popup',
-                maxWidth: 320
-            })
-            .openPopup(); // 页面加载完自动弹开
+        // --- 读取表格数据 ---
+        Papa.parse(googleSheetUrl, {
+            download: true,
+            header: true, // 识别第一行是标题
+            complete: function(results) {
+                // results.data 就是表格里的数据列表
+                results.data.forEach(function(row) {
+                    // 检查这一行有没有经纬度，防止空行报错
+                    if(row.lat && row.lng) {
+                        
+                        var content = `<div class="popup-text">${row.text || ''}</div>`;
+                        if(row.img && row.img.trim() !== "") {
+                            content += `<img src="${row.img}" class="popup-photo">`;
+                        }
 
-        // --- 核心逻辑结束 ---
+                        // 创建标记
+                        var marker = L.marker([parseFloat(row.lat), parseFloat(row.lng)])
+                                      .bindPopup(content);
+                        
+                        // 加入到聚合组，而不是直接加到地图
+                        markers.addLayer(marker);
+                    }
+                });
+
+                // 把聚合组加到地图上
+                map.addLayer(markers);
+
+                // 自动缩放地图以显示所有点
+                if (markers.getBounds().isValid()) {
+                    map.fitBounds(markers.getBounds(), {padding: [50, 50]});
+                }
+            }
+        });
     </script>
 </body>
 </html>
