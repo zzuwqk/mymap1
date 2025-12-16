@@ -16,13 +16,14 @@
         /* 弹窗里的小图样式 */
         .popup-photo {
             width: 100%;
-            max-width: 200px; /* 限制显示宽度 */
-            min-height: 100px; /* 占位，防止图片加载时弹窗抖动 */
+            max-width: 200px; /* 限制最大宽度 */
+            height: auto;     /* --- 修改点 1: 确保高度自动，维持原比例 --- */
+            /* min-height: 100px;  <-- 删除了这一行，避免强制拉伸高度 */
             border-radius: 4px;
             margin-top: 5px;
             display: block;
             cursor: zoom-in;
-            background: #f0f0f0; /* 加载前的灰色背景 */
+            background: #f0f0f0; /* 加载前的灰色占位背景 */
         }
         .popup-text {
             font-size: 14px;
@@ -46,10 +47,11 @@
             flex-direction: column;
         }
         #modal-img {
-            max-width: 90%;
-            max-height: 90%;
+            max-width: 95%; /* 稍微调大了一点点显示区域 */
+            max-height: 95%;
             border-radius: 4px;
             box-shadow: 0 0 20px rgba(255,255,255,0.2);
+            object-fit: contain; /* 确保大图完整显示不裁切 */
         }
         /* 加载中的转圈圈 */
         .loader {
@@ -60,7 +62,7 @@
             height: 50px;
             animation: spin 1s linear infinite;
             position: absolute;
-            display: none; /* 默认隐藏 */
+            display: none;
         }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
 
@@ -85,8 +87,7 @@
         <span id="modal-close">&times;</span>
         <div class="loader" id="loader"></div>
         <img id="modal-img" src="" onload="hideLoader()">
-        <div class="modal-hint">点击任意处关闭</div>
-    </div>
+        </div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
@@ -96,17 +97,22 @@
         // --- 1. 配置区域 ---
         const googleSheetUrl = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQ-VgDh9kenZDoNQPFuCJ5fX3eYUBts-V2bLPU6qtqMyHDIXcpR0HDZKiqcAZJfjRXji9UHZGmdqlKX/pub?output=csv'; 
 
-        // --- 2. 核心魔法：图片自动压缩函数 ---
-        // 使用 wsrv.nl 免费服务，把 GitHub 的大图转换成小图
+        // --- 2. 核心魔法：图片压缩函数 ---
+
+        // 函数 A：生成极小的缩略图 (用于地图弹窗)
+        // 宽 300px, 质量 70%
         function getThumbnailUrl(originalUrl) {
-            // 如果不是 http 开头的图片，直接返回
             if (!originalUrl || !originalUrl.startsWith('http')) return originalUrl;
-            
-            // w=300: 宽300像素
-            // q=75: 质量75%
-            // output=webp: 自动转为更小的 webp 格式
-            return `https://wsrv.nl/?url=${encodeURIComponent(originalUrl)}&w=300&q=75&output=webp`;
+            return `https://wsrv.nl/?url=${encodeURIComponent(originalUrl)}&w=300&q=70&output=webp`;
         }
+
+        // --- 修改点 2: 新增函数 B：生成优化后的高清图 (用于点击查看) ---
+        // 宽 1200px (足够清晰), 质量 85% (肉眼看不出损失), 不再加载原图
+        function getOptimizedBigUrl(originalUrl) {
+            if (!originalUrl || !originalUrl.startsWith('http')) return originalUrl;
+            return `https://wsrv.nl/?url=${encodeURIComponent(originalUrl)}&w=1200&q=85&output=webp`;
+        }
+
 
         // --- 初始化地图 ---
         var map = L.map('map').setView([35.8617, 104.1954], 4);
@@ -123,14 +129,13 @@
             var loader = document.getElementById('loader');
             
             modal.style.display = "flex";
-            loader.style.display = "block"; // 显示转圈
-            modalImg.style.display = "none"; // 图片没加载完先隐藏
+            loader.style.display = "block"; 
+            modalImg.style.display = "none"; 
 
-            // 加载原图
+            // 这里传入的 src 已经是优化过的高清图链接了
             modalImg.src = src; 
         }
 
-        // 图片加载完毕后触发
         function hideLoader() {
             document.getElementById('loader').style.display = "none";
             document.getElementById('modal-img').style.display = "block";
@@ -138,7 +143,7 @@
 
         function closeModal() {
             document.getElementById('image-modal').style.display = "none";
-            document.getElementById('modal-img').src = ""; // 清空，防止下次打开闪烁
+            document.getElementById('modal-img').src = ""; 
         }
 
         // --- 读取数据 ---
@@ -153,13 +158,18 @@
                         var content = `<div class="popup-text">${row.text || ''}</div>`;
                         
                         if(row.img && row.img.trim() !== "") {
-                            // !!! 关键修改 !!!
-                            // src 使用 getThumbnailUrl(row.img) 获取压缩图
-                            // onclick 使用 row.img 传递原图链接
+                            
+                            // --- 修改点 3: 关键逻辑更新 ---
+                            // 1. 计算高清优化图的链接
+                            const optimizedBigUrl = getOptimizedBigUrl(row.img);
+                            
+                            // 2. 生成 HTML
+                            // src 使用 getThumbnailUrl (极小图)
+                            // onclick 传递 optimizedBigUrl (优化后的高清图)，而不是 row.img (原图)
                             content += `<img src="${getThumbnailUrl(row.img)}" 
                                              class="popup-photo" 
-                                             onclick="showBigImage('${row.img}')" 
-                                             alt="Loading...">`;
+                                             onclick="showBigImage('${optimizedBigUrl}')" 
+                                             alt="点击查看大图">`;
                         }
                         
                         var marker = L.marker([parseFloat(row.lat), parseFloat(row.lng)]).bindPopup(content);
