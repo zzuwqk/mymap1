@@ -16,15 +16,13 @@
         /* 弹窗里的小图样式 */
         .popup-photo {
             width: 100%;
-            /* 关键 CSS：限制最大宽度为 200px，高度自动。
-               即使图片实际是 800px 宽，在这里也会被缩放到 200px 显示 */
             max-width: 200px; 
             height: auto;     
             border-radius: 4px;
             margin-top: 5px;
             display: block;
             cursor: zoom-in;
-            background: #f0f0f0; /* 加载前的灰色占位背景 */
+            background: #f0f0f0; 
         }
         .popup-text {
             font-size: 14px;
@@ -33,7 +31,7 @@
             margin-bottom: 5px;
         }
 
-        /* 大图查看器样式 */
+        /* --- 大图查看器样式 --- */
         #image-modal {
             display: none;
             position: fixed;
@@ -48,12 +46,12 @@
             flex-direction: column;
         }
         #modal-img {
-            /* 大图模式下，允许图片最大占屏幕的 95% */
             max-width: 95%; 
             max-height: 95%;
             border-radius: 4px;
             box-shadow: 0 0 20px rgba(255,255,255,0.2);
             object-fit: contain; 
+            user-select: none; /* 防止频繁点击时被选中 */
         }
 
         #modal-close {
@@ -65,16 +63,51 @@
             font-weight: bold;
             cursor: pointer;
             z-index: 10001;
+            user-select: none;
         }
+
+        /* --- 新增：左右切换按钮样式 --- */
+        .nav-btn {
+            position: absolute;
+            top: 50%;
+            transform: translateY(-50%);
+            color: rgba(255, 255, 255, 0.8);
+            font-size: 60px;
+            font-weight: bold;
+            cursor: pointer;
+            z-index: 10001;
+            padding: 20px;
+            user-select: none; /* 防止双击选中 */
+            transition: color 0.2s, background 0.2s;
+            border-radius: 50%;
+        }
+        .nav-btn:hover {
+            color: #fff;
+            background: rgba(255, 255, 255, 0.1);
+        }
+        /* 左按钮 */
+        #prev-btn { left: 10px; }
+        /* 右按钮 */
+        #next-btn { right: 10px; }
+        
+        /* 手机端按钮稍微调小一点，防误触 */
+        @media (max-width: 768px) {
+            .nav-btn { font-size: 40px; padding: 10px; }
+        }
+
     </style>
 </head>
 <body>
 
     <div id="map"></div>
 
-    <div id="image-modal" onclick="closeModal()">
-        <span id="modal-close">&times;</span>
-        <img id="modal-img" src="">
+    <div id="image-modal">
+        <span id="modal-close" onclick="closeModal()">&times;</span>
+        
+        <div id="prev-btn" class="nav-btn" onclick="switchImage(-1)">&lt;</div>
+        <div id="next-btn" class="nav-btn" onclick="switchImage(1)">&gt;</div>
+
+        <img id="modal-img" src="" onclick="closeModal()">
     </div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -85,13 +118,18 @@
         // --- 1. 配置区域 ---
         const googleSheetUrl = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQ-VgDh9kenZDoNQPFuCJ5fX3eYUBts-V2bLPU6qtqMyHDIXcpR0HDZKiqcAZJfjRXji9UHZGmdqlKX/pub?output=csv'; 
 
-        // --- 2. 核心魔法：单一图片压缩函数 ---
-        // 我们设定一个中等宽度：800px。
-        // 对于手机看大图足够清晰，对于小弹窗加载也足够快。
+        // --- 2. 数据容器 ---
+        // 用来存储每个地点的照片组
+        // 结构示例： { "30.5_114.3": [row1, row2, ...], ... }
+        var photosByLocation = {};
+        
+        // 当前查看的状态
+        var currentLocationKey = ""; // 当前地点的ID
+        var currentImageIndex = 0;   // 当前看的是第几张
+
+        // --- 3. 图片压缩函数 (保持不变) ---
         function getSingleOptimizedUrl(originalUrl) {
             if (!originalUrl || !originalUrl.startsWith('http')) return originalUrl;
-            // w=800: 宽度统一为 800像素
-            // q=80: 质量 70%
             return `https://wsrv.nl/?url=${encodeURIComponent(originalUrl)}&w=800&q=70&output=webp`;
         }
 
@@ -103,27 +141,72 @@
 
         var markers = L.markerClusterGroup();
 
-        // --- 大图相关函数 ---
-        function showBigImage(src) {
+        // --- 4. 核心功能：打开画廊 ---
+        // key: 地点标识 (lat_lng), index: 该照片在组内的索引
+        function openGallery(key, index) {
+            currentLocationKey = key;
+            currentImageIndex = index;
+            
             var modal = document.getElementById('image-modal');
+            var prevBtn = document.getElementById('prev-btn');
+            var nextBtn = document.getElementById('next-btn');
+            
+            // 显示容器
+            modal.style.display = "flex";
+
+            // 判断是否显示切换按钮 (只有该地点照片数 > 1 才显示)
+            var group = photosByLocation[key];
+            if (group && group.length > 1) {
+                prevBtn.style.display = "block";
+                nextBtn.style.display = "block";
+            } else {
+                prevBtn.style.display = "none";
+                nextBtn.style.display = "none";
+            }
+
+            // 更新图片
+            updateModalImage();
+        }
+
+        // --- 切换图片 ---
+        // direction: -1 (上一张) 或 1 (下一张)
+        function switchImage(direction) {
+            // 阻止事件冒泡，防止触发背景关闭
+            if(window.event) window.event.stopPropagation();
+
+            var group = photosByLocation[currentLocationKey];
+            if (!group) return;
+
+            // 循环切换逻辑
+            var newIndex = currentImageIndex + direction;
+            if (newIndex >= group.length) {
+                newIndex = 0; // 到底了回到第一张
+            } else if (newIndex < 0) {
+                newIndex = group.length - 1; // 到头了回到最后一张
+            }
+            
+            currentImageIndex = newIndex;
+            updateModalImage();
+        }
+
+        // --- 刷新大图显示 ---
+        function updateModalImage() {
+            var group = photosByLocation[currentLocationKey];
+            var row = group[currentImageIndex];
             var modalImg = document.getElementById('modal-img');
             
-            // 直接显示容器
-            modal.style.display = "flex";
-            // 直接设置图片来源。因为这张图在小窗口里已经加载过了，
-            // 浏览器会直接从缓存读取，瞬间显示，不需要转圈等待。
-            modalImg.src = src; 
+            // 使用完全相同的优化 URL，浏览器会直接从缓存读取，速度极快
+            modalImg.src = getSingleOptimizedUrl(row.img);
         }
 
         function closeModal() {
             document.getElementById('image-modal').style.display = "none";
             setTimeout(() => {
-                 document.getElementById('modal-img').src = ""; // 延迟清空，避免关闭动画闪烁
+                 document.getElementById('modal-img').src = ""; 
             }, 200);
-           
         }
 
-        // --- 读取数据 ---
+        // --- 5. 读取与处理数据 ---
         Papa.parse(googleSheetUrl, {
             download: true,
             header: true,
@@ -131,24 +214,34 @@
                 if (!results.data) return;
 
                 results.data.forEach(function(row) {
-                    if(row.lat && row.lng) {
-                        var content = `<div class="popup-text">${row.text || ''}</div>`;
+                    // 确保有经纬度
+                    if(row.lat && row.lng && row.img && row.img.trim() !== "") {
                         
-                        if(row.img && row.img.trim() !== "") {
-                            
-                            // --- 修改点：获取唯一的优化图片链接 ---
-                            const singleUrl = getSingleOptimizedUrl(row.img);
-                            
-                            // --- 关键修改 ---
-                            // src 使用这个链接
-                            // onclick="showBigImage(this.src)"：点击时，把自己当前的 src 传给大图
-                            // 这样保证了缩略图和大图用的是同一个 URL资源。
-                            content += `<img src="${singleUrl}" 
-                                             class="popup-photo" 
-                                             onclick="showBigImage(this.src)" 
-                                             alt="点击查看大图">`;
+                        // 生成唯一地点 Key (用下划线连接经纬度)
+                        var locationKey = row.lat + "_" + row.lng;
+                        
+                        // 存入分组字典
+                        if (!photosByLocation[locationKey]) {
+                            photosByLocation[locationKey] = [];
                         }
                         
+                        // 这一步很重要：先把数据存进去，再算它是第几个
+                        var group = photosByLocation[locationKey];
+                        group.push(row);
+                        
+                        // 它是当前组里的第几个？(索引从 0 开始)
+                        var indexInGroup = group.length - 1; 
+
+                        // 构建弹窗内容
+                        var content = `<div class="popup-text">${row.text || ''}</div>`;
+                        var singleUrl = getSingleOptimizedUrl(row.img);
+                        
+                        // 注意 onclick 里的变化：不再传 url，而是传 key 和 index
+                        content += `<img src="${singleUrl}" 
+                                         class="popup-photo" 
+                                         onclick="openGallery('${locationKey}', ${indexInGroup})" 
+                                         alt="点击查看大图">`;
+
                         var marker = L.marker([parseFloat(row.lat), parseFloat(row.lng)]).bindPopup(content);
                         markers.addLayer(marker);
                     }
