@@ -16,9 +16,10 @@
         /* 弹窗里的小图样式 */
         .popup-photo {
             width: 100%;
-            max-width: 200px; /* 限制最大宽度 */
-            height: auto;     /* --- 修改点 1: 确保高度自动，维持原比例 --- */
-            /* min-height: 100px;  <-- 删除了这一行，避免强制拉伸高度 */
+            /* 关键 CSS：限制最大宽度为 200px，高度自动。
+               即使图片实际是 800px 宽，在这里也会被缩放到 200px 显示 */
+            max-width: 200px; 
+            height: auto;     
             border-radius: 4px;
             margin-top: 5px;
             display: block;
@@ -47,24 +48,13 @@
             flex-direction: column;
         }
         #modal-img {
-            max-width: 95%; /* 稍微调大了一点点显示区域 */
+            /* 大图模式下，允许图片最大占屏幕的 95% */
+            max-width: 95%; 
             max-height: 95%;
             border-radius: 4px;
             box-shadow: 0 0 20px rgba(255,255,255,0.2);
-            object-fit: contain; /* 确保大图完整显示不裁切 */
+            object-fit: contain; 
         }
-        /* 加载中的转圈圈 */
-        .loader {
-            border: 5px solid #f3f3f3;
-            border-top: 5px solid #3498db;
-            border-radius: 50%;
-            width: 50px;
-            height: 50px;
-            animation: spin 1s linear infinite;
-            position: absolute;
-            display: none;
-        }
-        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
 
         #modal-close {
             position: absolute;
@@ -76,7 +66,6 @@
             cursor: pointer;
             z-index: 10001;
         }
-        .modal-hint { color: #aaa; margin-top: 10px; font-size: 12px; }
     </style>
 </head>
 <body>
@@ -85,9 +74,8 @@
 
     <div id="image-modal" onclick="closeModal()">
         <span id="modal-close">&times;</span>
-        <div class="loader" id="loader"></div>
-        <img id="modal-img" src="" onload="hideLoader()">
-        </div>
+        <img id="modal-img" src="">
+    </div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
@@ -97,22 +85,15 @@
         // --- 1. 配置区域 ---
         const googleSheetUrl = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQ-VgDh9kenZDoNQPFuCJ5fX3eYUBts-V2bLPU6qtqMyHDIXcpR0HDZKiqcAZJfjRXji9UHZGmdqlKX/pub?output=csv'; 
 
-        // --- 2. 核心魔法：图片压缩函数 ---
-
-        // 函数 A：生成极小的缩略图 (用于地图弹窗)
-        // 宽 300px, 质量 70%
-        function getThumbnailUrl(originalUrl) {
+        // --- 2. 核心魔法：单一图片压缩函数 ---
+        // 我们设定一个中等宽度：800px。
+        // 对于手机看大图足够清晰，对于小弹窗加载也足够快。
+        function getSingleOptimizedUrl(originalUrl) {
             if (!originalUrl || !originalUrl.startsWith('http')) return originalUrl;
-            return `https://wsrv.nl/?url=${encodeURIComponent(originalUrl)}&w=300&q=70&output=webp`;
+            // w=800: 宽度统一为 800像素
+            // q=80: 质量 80%
+            return `https://wsrv.nl/?url=${encodeURIComponent(originalUrl)}&w=800&q=80&output=webp`;
         }
-
-        // --- 修改点 2: 新增函数 B：生成优化后的高清图 (用于点击查看) ---
-        // 宽 1200px (足够清晰), 质量 85% (肉眼看不出损失), 不再加载原图
-        function getOptimizedBigUrl(originalUrl) {
-            if (!originalUrl || !originalUrl.startsWith('http')) return originalUrl;
-            return `https://wsrv.nl/?url=${encodeURIComponent(originalUrl)}&w=1200&q=85&output=webp`;
-        }
-
 
         // --- 初始化地图 ---
         var map = L.map('map').setView([35.8617, 104.1954], 4);
@@ -126,24 +107,20 @@
         function showBigImage(src) {
             var modal = document.getElementById('image-modal');
             var modalImg = document.getElementById('modal-img');
-            var loader = document.getElementById('loader');
             
+            // 直接显示容器
             modal.style.display = "flex";
-            loader.style.display = "block"; 
-            modalImg.style.display = "none"; 
-
-            // 这里传入的 src 已经是优化过的高清图链接了
+            // 直接设置图片来源。因为这张图在小窗口里已经加载过了，
+            // 浏览器会直接从缓存读取，瞬间显示，不需要转圈等待。
             modalImg.src = src; 
-        }
-
-        function hideLoader() {
-            document.getElementById('loader').style.display = "none";
-            document.getElementById('modal-img').style.display = "block";
         }
 
         function closeModal() {
             document.getElementById('image-modal').style.display = "none";
-            document.getElementById('modal-img').src = ""; 
+            setTimeout(() => {
+                 document.getElementById('modal-img').src = ""; // 延迟清空，避免关闭动画闪烁
+            }, 200);
+           
         }
 
         // --- 读取数据 ---
@@ -159,16 +136,16 @@
                         
                         if(row.img && row.img.trim() !== "") {
                             
-                            // --- 修改点 3: 关键逻辑更新 ---
-                            // 1. 计算高清优化图的链接
-                            const optimizedBigUrl = getOptimizedBigUrl(row.img);
+                            // --- 修改点：获取唯一的优化图片链接 ---
+                            const singleUrl = getSingleOptimizedUrl(row.img);
                             
-                            // 2. 生成 HTML
-                            // src 使用 getThumbnailUrl (极小图)
-                            // onclick 传递 optimizedBigUrl (优化后的高清图)，而不是 row.img (原图)
-                            content += `<img src="${getThumbnailUrl(row.img)}" 
+                            // --- 关键修改 ---
+                            // src 使用这个链接
+                            // onclick="showBigImage(this.src)"：点击时，把自己当前的 src 传给大图
+                            // 这样保证了缩略图和大图用的是同一个 URL资源。
+                            content += `<img src="${singleUrl}" 
                                              class="popup-photo" 
-                                             onclick="showBigImage('${optimizedBigUrl}')" 
+                                             onclick="showBigImage(this.src)" 
                                              alt="点击查看大图">`;
                         }
                         
