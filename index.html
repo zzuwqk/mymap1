@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-    <title>尾迹采集水域考察地图>shui'yu
+    <title>尾迹采集水域考察地图<title>
     
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
@@ -91,7 +91,7 @@
         function getSingleOptimizedUrl(originalUrl) {
             if (!originalUrl || !originalUrl.startsWith('http')) return originalUrl;
             // w=800: 宽度统一为 800像素
-            // q=80: 质量 80%
+            // q=80: 质量 70%
             return `https://wsrv.nl/?url=${encodeURIComponent(originalUrl)}&w=800&q=70&output=webp`;
         }
 
